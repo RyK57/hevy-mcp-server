@@ -1,0 +1,8 @@
+node_modules
+dist
+.git
+.env
+*.log
+smoke-test.mjs
+openapi-spec.json
+README.md
