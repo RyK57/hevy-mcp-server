@@ -4,7 +4,12 @@
  */
 
 import { spawn } from "node:child_process";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
+
+/** Resolve the repo root from this file so the test runs from any working directory. */
+const REPO_ROOT = dirname(fileURLToPath(import.meta.url));
 
 const PORT = 8787;
 
@@ -80,7 +85,7 @@ await new Promise((r) => mock.listen(PORT, "127.0.0.1", r));
 
 // --- Drive the server over stdio --------------------------------------------
 const child = spawn("node", ["dist/index.js"], {
-  cwd: "/home/claude/hevy-mcp-server",
+  cwd: REPO_ROOT,
   env: { ...process.env, HEVY_API_KEY: "11111111-2222-3333-4444-555555555555", HEVY_API_BASE_URL: `http://127.0.0.1:${PORT}` },
   stdio: ["pipe", "pipe", "pipe"],
 });
