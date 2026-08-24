@@ -291,7 +291,9 @@ Weights are KILOGRAMS. Convert pounds first: kg = lb / 2.20462. Resolve exercise
 Args:
   - workout_id (string): session to close; omit to close whichever session is open
   - title (string): final title; defaults to the one given at start
-  - description (string | null), is_private (boolean): default to the session's existing values
+  - description (string | null): defaults to the description the session was opened with
+  - is_private (boolean): defaults to false — Hevy omits this field when reading a workout,
+    so a session opened as private must be marked private again here
   - exercises (array): everything performed, same shape as hevy_create_workout
 
 Returns:
