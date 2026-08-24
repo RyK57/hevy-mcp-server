@@ -45,6 +45,16 @@ const workout = {
 
 const requestLog = [];
 
+/**
+ * Sessions opened during the run, newest-first, mirroring how the real API
+ * would surface an in-progress workout at the top of the workout list. A
+ * workout counts as open only while its title carries the marker, so finishing
+ * or cancelling one drops it from here exactly as it would in Hevy.
+ */
+const SESSION_MARKER = "🔴 In Progress";
+let openSessions = [];
+const isOpen = (title) => (title ?? "").startsWith(SESSION_MARKER);
+
 const mock = createServer((req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   let body = "";
@@ -56,9 +66,22 @@ const mock = createServer((req, res) => {
       res.end(JSON.stringify(payload));
     };
 
-    if (url.pathname === "/v1/workouts" && req.method === "GET") return send(200, { page: 1, page_count: 3, workouts: [workout] });
-    if (url.pathname === "/v1/workouts" && req.method === "POST") return send(201, { ...workout, id: "new-workout-id" });
+    if (url.pathname === "/v1/workouts" && req.method === "GET") return send(200, { page: 1, page_count: 3, workouts: [...openSessions, workout] });
+    if (url.pathname === "/v1/workouts" && req.method === "POST") {
+      const submitted = JSON.parse(body || "{}").workout ?? {};
+      const saved = { ...workout, ...submitted, id: "new-workout-id" };
+      if (isOpen(submitted.title)) openSessions.unshift(saved);
+      return send(201, saved);
+    }
     if (url.pathname === "/v1/workouts/count") return send(200, { workout_count: 137 });
+    if (url.pathname.startsWith("/v1/workouts/") && req.method === "PUT") {
+      const submitted = JSON.parse(body || "{}").workout ?? {};
+      const id = decodeURIComponent(url.pathname.split("/").pop());
+      const saved = { ...workout, ...submitted, id };
+      openSessions = openSessions.filter((s) => s.id !== id);
+      if (isOpen(submitted.title)) openSessions.unshift(saved);
+      return send(200, saved);
+    }
     if (url.pathname.startsWith("/v1/workouts/") && req.method === "GET") return send(200, workout);
     if (url.pathname === "/v1/exercise_templates") {
       const page = Number(url.searchParams.get("page") ?? 1);
@@ -131,15 +154,28 @@ child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/ini
 
 const list = await rpc("tools/list", {});
 const tools = list.result?.tools ?? [];
-check("tools/list returns tools", tools.length === 23, `${tools.length} tools`);
+check("tools/list returns tools", tools.length === 27, `${tools.length} tools`);
 check("all tools prefixed hevy_", tools.every((t) => t.name.startsWith("hevy_")));
 check("all tools have descriptions", tools.every((t) => (t.description ?? "").length > 100));
 check("all tools have annotations", tools.every((t) => t.annotations && "readOnlyHint" in t.annotations));
 check("all tools have input schemas", tools.every((t) => t.inputSchema?.type === "object"));
 check("all tools have output schemas", tools.every((t) => t.outputSchema?.type === "object"));
 
+// Pinned by name, not count: a tool silently gaining or losing destructiveHint
+// changes how clients prompt before calling it, so the exact set is the assertion.
 const destructive = tools.filter((t) => t.annotations?.destructiveHint === true).map((t) => t.name).sort();
-check("destructive tools flagged", destructive.length === 3, destructive.join(", "));
+const expectedDestructive = [
+  "hevy_cancel_session",
+  "hevy_finish_session",
+  "hevy_update_body_measurement",
+  "hevy_update_routine",
+  "hevy_update_workout",
+];
+check(
+  "destructive tools flagged",
+  destructive.join(",") === expectedDestructive.join(","),
+  destructive.join(", "),
+);
 
 const call = async (name, args) => {
   const res = await rpc("tools/call", { name, arguments: args });
@@ -213,6 +249,56 @@ check("folders render with ids", folders.content[0].text.includes("id: 42"));
 
 const jsonFormat = await call("hevy_list_workouts", { response_format: "json" });
 check("json response_format works", jsonFormat.content[0].text.trim().startsWith("{"));
+
+// --- Sessions ----------------------------------------------------------------
+const lastBody = (method, prefix) =>
+  JSON.parse(requestLog.filter((r) => r.method === method && r.path.startsWith(prefix)).pop().body);
+
+const noSession = await call("hevy_get_active_session", {});
+check("no active session initially", noSession.structuredContent?.is_active === false);
+
+const started = await call("hevy_start_session", { title: "Leg Day" });
+check("start session opens a marked workout", isOpen(started.structuredContent?.workout?.title), started.structuredContent?.workout?.title);
+
+const startBody = lastBody("POST", "/v1/workouts");
+check("session timestamps set server-side", typeof startBody.workout?.start_time === "string" && startBody.workout.start_time === startBody.workout.end_time, "start_time == end_time on open");
+
+const active = await call("hevy_get_active_session", {});
+check("open session found by title marker", active.structuredContent?.is_active === true && active.content[0].text.includes("Leg Day"));
+
+const secondStart = await call("hevy_start_session", { title: "Overlapping" });
+check("refuses a second open session", secondStart.isError === true && secondStart.content[0].text.includes("already open"));
+
+const finished = await call("hevy_finish_session", {
+  exercises: [{ exercise_template_id: "AA11BB22", sets: [{ type: "normal", weight_kg: 100, reps: 5 }] }],
+});
+check("finish strips the in-progress marker", finished.structuredContent?.workout?.title === "Leg Day", finished.structuredContent?.workout?.title);
+
+const finishBody = lastBody("PUT", "/v1/workouts/");
+check("finish keeps start_time and extends end_time", finishBody.workout.start_time === startBody.workout.start_time && new Date(finishBody.workout.end_time) >= new Date(finishBody.workout.start_time));
+check("finish writes the performed exercises", finishBody.workout.exercises?.[0]?.exercise_template_id === "AA11BB22");
+
+const afterFinish = await call("hevy_get_active_session", {});
+check("session closes after finish", afterFinish.structuredContent?.is_active === false);
+
+const orphanFinish = await call("hevy_finish_session", {
+  exercises: [{ exercise_template_id: "AA11BB22", sets: [{ type: "normal", weight_kg: 100, reps: 5 }] }],
+});
+check("finish with nothing open errors", orphanFinish.isError === true && orphanFinish.content[0].text.includes("hevy_start_session"));
+
+await call("hevy_start_session", {
+  title: "Abandon Me",
+  exercises: [{ exercise_template_id: "D04AC939", sets: [{ type: "normal", weight_kg: 60, reps: 8 }] }],
+});
+const cancelled = await call("hevy_cancel_session", {});
+check("cancel relabels rather than deletes", cancelled.structuredContent?.workout?.title?.startsWith("Abandoned session"), cancelled.structuredContent?.workout?.title);
+check("cancel warns it cannot delete", cancelled.content[0].text.includes("no delete endpoint"));
+
+const cancelBody = lastBody("PUT", "/v1/workouts/");
+check("cancel preserves logged exercises", cancelBody.workout.exercises?.[0]?.exercise_template_id === "D04AC939");
+
+const afterCancel = await call("hevy_get_active_session", {});
+check("session closes after cancel", afterCancel.structuredContent?.is_active === false);
 
 check("api-key header sent on every request", requestLog.every((r) => r.apiKey === "11111111-2222-3333-4444-555555555555"), `${requestLog.length} requests`);
 

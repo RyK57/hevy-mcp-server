@@ -2,7 +2,7 @@
 
 MCP server for the [Hevy](https://hevy.com) workout tracking API. Gives an LLM read and write access to workouts, routines, exercise templates, per-exercise history, and body measurements.
 
-Covers all 15 endpoints of the Hevy public API (v0.0.1) across 23 tools.
+Covers all 15 endpoints of the Hevy public API (v0.0.1) across 27 tools.
 
 ## Requirements
 
@@ -100,6 +100,8 @@ Treat that URL like a password: it's the only thing standing between the interne
 
 **Workouts** — `hevy_list_workouts`, `hevy_get_workout`, `hevy_count_workouts`, `hevy_list_workout_events`, `hevy_create_workout`, `hevy_update_workout`
 
+**Sessions** — `hevy_start_session`, `hevy_get_active_session`, `hevy_finish_session`, `hevy_cancel_session`
+
 **Routines** — `hevy_list_routines`, `hevy_get_routine`, `hevy_create_routine`, `hevy_update_routine`
 
 **Routine folders** — `hevy_list_routine_folders`, `hevy_get_routine_folder`, `hevy_create_routine_folder`
@@ -120,6 +122,9 @@ Every read tool takes `response_format: "markdown" | "json"`. Markdown is the de
 **"Log today's bench: 3x8 at 60kg"**
 → `hevy_search_exercise_templates` with `query="bench press"` to get the id, then `hevy_create_workout` with three sets of `{ weight_kg: 60, reps: 8 }`.
 
+**"I'm starting legs now"**
+→ `hevy_start_session` with `title="Leg Day"`. The start time is stamped server-side and the session shows in Hevy as in-progress. When you're done, `hevy_finish_session` with what you performed closes it out with the real duration.
+
 **"Am I getting stronger on squats?"**
 → `hevy_search_exercise_templates` with `query="squat"`, then `hevy_get_exercise_history` with a `start_date`. Returns every logged set newest-first, plus the best set by estimated 1RM.
 
@@ -128,6 +133,8 @@ Every read tool takes `response_format: "markdown" | "json"`. Markdown is the de
 **Search before writing.** Hevy has no server-side exercise search, but every write needs an `exercise_template_id`. `hevy_search_exercise_templates` pages through the catalogue (up to 30 pages of 100) and filters locally on title, muscle group, equipment, and custom-only. Point the model at this tool first — ids cannot be guessed.
 
 **Updates are replacements, not patches.** `hevy_update_workout`, `hevy_update_routine`, and `hevy_update_body_measurement` overwrite the entire resource; anything omitted is deleted or nulled. All three carry `destructiveHint: true`, and their descriptions tell the model to read the current state first. These are the only three destructive tools — the Hevy API has no delete endpoints.
+
+**Live sessions are a title convention, not server state.** Hevy's API has no start-workout endpoint and cannot drive the in-app timer, so `hevy_start_session` creates a real workout up front titled `🔴 In Progress — <title>`, and `hevy_finish_session` rewrites it with the true end time. That marker is the only handle that persists — the server holds no state between requests, so any chat on any device finds the open session by scanning recent workouts. The cost is that an unfinished session stays visible in the log, and since Hevy exposes no delete, `hevy_cancel_session` can only relabel it, never remove it.
 
 **Everything is kilograms.** The API has no unit field. Input fields are named `weight_kg` so there's no ambiguity about what the model is sending, and markdown output renders both (`60 kg (132.3 lb)`) so a US-based reader doesn't have to convert mentally.
 
@@ -154,6 +161,7 @@ src/
 │   └── entities.ts        # per-entity markdown rendering
 └── tools/
     ├── workouts.ts
+    ├── sessions.ts         # in-progress workout tracking
     ├── routines.ts
     ├── exercise-templates.ts
     └── progress.ts
@@ -170,7 +178,7 @@ src/
 
 ```bash
 pnpm run build
-pnpm test         # 31 checks: MCP handshake, tools, formatting, errors (mocked API)
+pnpm test         # 45 checks: MCP handshake, tools, sessions, formatting, errors (mocked API)
 pnpm run test:http  # 13 checks: path-secret gating, health check, origin allowlist
 ```
 

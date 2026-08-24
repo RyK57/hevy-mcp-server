@@ -19,6 +19,7 @@ import {
   listWorkoutEventsSchema,
   listWorkoutsSchema,
   updateWorkoutSchema,
+  workoutExerciseSchema,
 } from "../schemas/inputs.js";
 import { listOutput, singleOutput, workoutCountOutput } from "../schemas/outputs.js";
 import type { HevyClientConfig } from "../services/hevy-client.js";
@@ -37,8 +38,23 @@ interface WorkoutEventsResponse {
   events: WorkoutEvent[];
 }
 
+/**
+ * The workout fields Hevy accepts on both create and update. Declared
+ * structurally rather than as a schema inference so the session tools, which
+ * assemble a body from a stored workout rather than from tool input, can reuse
+ * this without inheriting `createWorkoutSchema`'s minimum-one-exercise rule.
+ */
+export interface WorkoutBodyInput {
+  title: string;
+  description?: string | null;
+  start_time: string;
+  end_time: string;
+  is_private: boolean;
+  exercises: z.infer<typeof workoutExerciseSchema>[];
+}
+
 /** Maps validated tool input to the request body Hevy expects. */
-const toWorkoutBody = (params: z.infer<typeof createWorkoutSchema>) => ({
+export const toWorkoutBody = (params: WorkoutBodyInput) => ({
   workout: {
     title: params.title,
     description: params.description ?? null,

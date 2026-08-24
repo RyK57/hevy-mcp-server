@@ -28,6 +28,19 @@ export const PAGE_SIZE_LIMITS = {
 /** Conversion factor used only for display; the API is kilograms throughout. */
 export const KG_TO_LB = 2.20462;
 
+/**
+ * Title prefix marking a workout as an open session.
+ *
+ * Hevy has no "start workout" endpoint, so an in-progress session is a real
+ * workout created up front and rewritten when it ends. The prefix is how any
+ * client — a different chat, a different device — finds that open session
+ * again, since the server itself holds no state between requests.
+ */
+export const SESSION_TITLE_PREFIX = "🔴 In Progress";
+
+/** Workouts scanned when looking for an open session. */
+export const SESSION_LOOKUP_PAGE_SIZE = 10;
+
 /** Number of pages `hevy_search_exercise_templates` will scan before giving up. */
 export const MAX_SEARCH_PAGES = 30;
 

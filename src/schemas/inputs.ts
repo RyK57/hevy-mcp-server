@@ -210,6 +210,64 @@ export const updateWorkoutSchema = z
   .strict();
 
 /* -------------------------------------------------------------------------- */
+/* Sessions                                                                    */
+/* -------------------------------------------------------------------------- */
+
+export const startSessionSchema = z
+  .object({
+    // Capped below the 200 Hevy allows so the in-progress prefix still fits.
+    title: z
+      .string()
+      .min(1)
+      .max(150)
+      .default("Workout")
+      .describe("What the session will be called once it ends, e.g. 'Leg Day'"),
+    description: z.string().nullable().optional().describe("Notes for the session"),
+    is_private: z.boolean().default(false).describe("Hide this workout from your public profile"),
+    exercises: z
+      .array(workoutExerciseSchema)
+      .default([])
+      .describe("Exercises already known at the start; leave empty to fill them in at the end"),
+  })
+  .strict();
+
+export const getActiveSessionSchema = z
+  .object({ response_format: responseFormatField })
+  .strict();
+
+export const finishSessionSchema = z
+  .object({
+    workout_id: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Session to close; omit to close whichever session is open"),
+    title: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe("Final title; defaults to the one given when the session started"),
+    description: z.string().nullable().optional().describe("Notes for the session"),
+    is_private: z.boolean().optional().describe("Hide this workout from your public profile"),
+    exercises: z
+      .array(workoutExerciseSchema)
+      .min(1, "A finished workout needs at least one exercise")
+      .describe("Everything actually performed, in order"),
+  })
+  .strict();
+
+export const cancelSessionSchema = z
+  .object({
+    workout_id: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Session to abandon; omit to use whichever session is open"),
+  })
+  .strict();
+
+/* -------------------------------------------------------------------------- */
 /* Routines                                                                    */
 /* -------------------------------------------------------------------------- */
 

@@ -19,6 +19,7 @@ import { loadConfig, type HevyClientConfig } from "./services/hevy-client.js";
 import { registerExerciseTemplateTools } from "./tools/exercise-templates.js";
 import { registerProgressTools } from "./tools/progress.js";
 import { registerRoutineTools } from "./tools/routines.js";
+import { registerSessionTools } from "./tools/sessions.js";
 import { registerWorkoutTools } from "./tools/workouts.js";
 
 const HELP_TEXT = `${SERVER_NAME} v${SERVER_VERSION}
@@ -52,11 +53,15 @@ const buildServer = (config: HevyClientConfig): McpServer => {
         "All weights are in kilograms and all circumferences in centimetres — convert " +
         "before writing. Resolve exercise names to ids with hevy_search_exercise_templates " +
         "before creating or updating workouts and routines. The update tools replace the " +
-        "whole resource, so read the current state first and send it back complete.",
+        "whole resource, so read the current state first and send it back complete. " +
+        "Hevy cannot start or drive its in-app timer through the API: to track a workout " +
+        "as it happens, open it with hevy_start_session and close it with hevy_finish_session, " +
+        "which records the real duration.",
     },
   );
 
   registerWorkoutTools(server, config);
+  registerSessionTools(server, config);
   registerRoutineTools(server, config);
   registerExerciseTemplateTools(server, config);
   registerProgressTools(server, config);
